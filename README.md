@@ -52,6 +52,8 @@ made by [ZacKenichi](https://github.com/zackenichi)
 
 1. Open a terminal and then create a new vite project using the following commands:
 
+npm
+
 ```bash
   npm create vite@latest vite-firebase-auth -- --template react-ts
   cd vite-firebase-auth
@@ -75,13 +77,10 @@ yarn create vite react-vite-template --template react-ts
 
 ## 5. Setup firebase connection
 
-1. Create `firebase` folder under src and create a file named `BaseConfig.ts` and add the following code:
+1. Create `firebase` folder under src and create a file named `firebase-config.ts` and add the following code:
 
 ```ts
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-
-const app = initializeApp({
+const config = {
   apiKey: import.meta.env.VITE_FIREBASE_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -89,71 +88,52 @@ const app = initializeApp({
   messagingSenderId: import.meta.env.VITE_FIREBASE_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-});
+};
 
-export const firebaseAuth = getAuth(app);
-export default app;
+export function getFirebaseConfig() {
+  if (!config || !config.apiKey) {
+    throw new Error(
+      'No Firebase configuration object provided.' +
+        '\n' +
+        "Add your web app's configuration object to firebase-config.ts"
+    );
+  } else {
+    return config;
+  }
+}
 ```
 
-2. In the firebase folder, create the `AuthService.ts` file
+2. In the firebase folder, create the `firebase.ts` file
 
 ```tsx
+import { initializeApp } from 'firebase/app';
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
+  getAuth,
+  onAuthStateChanged,
   signOut,
-  setPersistence,
-  browserLocalPersistence,
+  signInWithEmailAndPassword,
+  NextOrObserver,
+  User,
 } from 'firebase/auth';
-import { firebaseAuth } from './BaseConfig';
+import { getFirebaseConfig } from './firebase-config';
 
-//required if you want to keep logged in after user exits the browser or closes tab
-setPersistence(firebaseAuth, browserLocalPersistence);
+const app = initializeApp(getFirebaseConfig());
+const auth = getAuth(app);
 
-//Sign in functionality
-export const SignIn = async ({ email, password }: LoginFormValues) => {
-  const result = await signInWithEmailAndPassword(
-    firebaseAuth,
-    email,
-    password
-  );
-  return result;
+export const signInUser = async (email: string, password: string) => {
+  if (!email && !password) return;
+
+  return await signInWithEmailAndPassword(auth, email, password);
 };
 
-//Sign up functionality
-export const SignUp = async ({ email, password }: UserFormValues) => {
-  const result = await createUserWithEmailAndPassword(
-    firebaseAuth,
-    email,
-    password
-  );
-  return result;
+export const userStateListener = (callback: NextOrObserver<User>) => {
+  return onAuthStateChanged(auth, callback);
 };
 
-//Sign out functionality
-export const SignOut = async () => {
-  await signOut(firebaseAuth);
-};
+export const SignOutUser = async () => await signOut(auth);
 ```
 
-3. Create the `interfaces` under src
-
-interfaces.ts
-
-```ts
-export interface LoginFormValues {
-  email: string;
-  password: string;
-}
-
-export interface UserFormValues {
-  email: string;
-  password: string;
-  displayName: string;
-}
-```
-
-4. Create the `.env.local` file under root and add your firebase credentials
+3. Create the `.env.local` file under root and add your firebase credentials
 
 ```ts
 VITE_FIREBASE_KEY = '';
@@ -168,35 +148,254 @@ VITE_FIREBASE_MEASUREMENT_ID = '';
 
 ## 6. Set up auth context
 
-1. Create a context folder and a file named `AuthContext.ts` under the src folder
+Create a context folder and a file named `AuthContext.ts` under the src folder
 
-```tsx
-import { firebaseAuth } from '../firebase/BaseConfig';
-import { createContext } from 'react';
-
-export const AuthContext = createContext<IAuth>({
-  user: firebaseAuth.currentUser,
-  loading: false,
-  SignIn: () => {},
-  SignUp: () => {},
-  SignOut: () => {},
-});
-```
-
-2. Create Interface `IAuth` that's getting used by the Auth Context. You can add the following to the interfaces file.
-
-```tsx
+```ts
 import { User } from 'firebase/auth';
+import { useNavigate } from 'react-router-dom';
+import { SignOutUser, userStateListener } from '../firebase/firebase';
+import { createContext, useState, useEffect, ReactNode } from 'react';
 
-export interface IAuth {
-  user: User | null;
-  loading: boolean;
-  SignIn: (creds: LoginFormValues) => void;
-  SignUp: (creds: UserFormValues) => void;
-  SignOut: () => void;
+interface Props {
+  children?: ReactNode;
 }
+
+export const AuthContext = createContext({
+  // "User" comes from firebase auth-public.d.ts
+  currentUser: {} as User | null,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  setCurrentUser: (_user: User) => {},
+  signOut: () => {},
+});
+
+export const AuthProvider = ({ children }: Props) => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const unsubscribe = userStateListener((user) => {
+      if (user) {
+        setCurrentUser(user);
+      }
+    });
+    return unsubscribe;
+  }, [setCurrentUser]);
+
+  // As soon as setting the current user to null,
+  // the user will be redirected to the home page.
+  const signOut = () => {
+    SignOutUser();
+    setCurrentUser(null);
+    navigate('/');
+  };
+
+  const value = {
+    currentUser,
+    setCurrentUser,
+    signOut,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
 ```
 
-\*\* don't forget to import it in AuthContext
+## 7. Setup routing
 
-3. Create a
+Create a `routes` folder and creater the `home` and `profile` page
+
+home.tsx
+
+```tsx
+import { ChangeEvent, FormEvent, useState } from 'react';
+import reactLogo from '.././assets/react.svg';
+import { signInUser } from '../firebase/firebase';
+import { useNavigate } from 'react-router-dom';
+import '.././App.css';
+
+const defaultFormFields = {
+  email: '',
+  password: '',
+};
+
+function Home() {
+  const [formFields, setFormFields] = useState(defaultFormFields);
+  const { email, password } = formFields;
+  const navigate = useNavigate();
+
+  const resetFormFields = () => {
+    return setFormFields(defaultFormFields);
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    try {
+      // Send the email and password to firebase
+      const userCredential = await signInUser(email, password);
+
+      if (userCredential) {
+        resetFormFields();
+        navigate('/profile');
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      console.log('User Sign In Failed', error.message);
+    }
+  };
+
+  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setFormFields({ ...formFields, [name]: value });
+  };
+
+  return (
+    <div className="App">
+      <div className="card">
+        <div className="logo-react">
+          <a href="https://reactjs.org" target="_blank">
+            <img src={reactLogo} className="logo react" alt="React logo" />
+          </a>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div>
+            <input
+              type="email"
+              name="email"
+              value={email}
+              onChange={handleChange}
+              placeholder="Email"
+              required
+            />
+          </div>
+          <div>
+            <input
+              type="password"
+              name="password"
+              value={password}
+              onChange={handleChange}
+              placeholder="Password"
+              required
+            />
+          </div>
+          <div>
+            <input id="recaptcha" type="submit" />
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default Home;
+```
+
+profile.tsx
+
+```tsx
+import { useContext } from 'react';
+import { AuthContext } from '../context/auth-context';
+
+function Profile() {
+  const { currentUser, signOut } = useContext(AuthContext);
+
+  return (
+    /**
+     * Extract the currrentUser from the context, if you want to
+     * get the User info, like the email, display name, etc.
+     */
+    <div>
+      <h3>Welcome! {currentUser?.email}</h3>
+      <p>Sign In Status: {currentUser && 'active'}</p>
+      <button onClick={signOut}>Sign Out</button>
+    </div>
+  );
+}
+export default Profile;
+```
+
+components/require-auth.tsx
+
+```tsx
+import { useContext } from 'react';
+import { AuthContext } from '../context/auth-context';
+import { Navigate, useLocation } from 'react-router-dom';
+
+function RequireAuth({ children }: { children: JSX.Element }) {
+  const { currentUser } = useContext(AuthContext);
+  const location = useLocation();
+
+  if (!currentUser) {
+    // Redirect the user to the home page.
+    // Please! Close the mustache {{}}
+    return <Navigate to="/" state={{ from: location }} replace />;
+  }
+
+  return children;
+}
+
+export default RequireAuth;
+```
+
+## 8. Update `App.tsx`
+
+```tsx
+import { useContext, useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
+import { AuthContext } from './context/auth-context';
+import RequireAuth from './components/require-auth';
+import Home from './routes/home';
+import Profile from './routes/profile';
+
+function App() {
+  const { currentUser } = useContext(AuthContext);
+  const navigate = useNavigate();
+
+  // NOTE: console log for testing purposes
+  console.log('User:', !!currentUser);
+
+  // Check if currentUser exists on initial render
+  useEffect(() => {
+    if (currentUser) {
+      navigate('/dashboard');
+    }
+  }, [currentUser, navigate]);
+
+  return (
+    <Routes>
+      <Route index element={<Home />} />
+      <Route
+        path="dashboard"
+        element={
+          <RequireAuth>
+            <Profile />
+          </RequireAuth>
+        }
+      />
+    </Routes>
+  );
+}
+
+export default App;
+```
+
+## 9. Wrap the main component, you should look for `main.tsx` in root
+
+```tsx
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from './context/auth-context';
+import App from './App';
+
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
+  </React.StrictMode>
+);
+```
