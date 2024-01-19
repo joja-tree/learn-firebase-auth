@@ -1,11 +1,11 @@
 const config = {
-  apiKey: 'AIzaSyBK5bgkLQ_kigELtNaar1hcIhpqPwPVZX4',
-  authDomain: 'learn-firebase-auth-330d3.firebaseapp.com',
-  projectId: 'learn-firebase-auth-330d3',
-  storageBucket: 'learn-firebase-auth-330d3.appspot.com',
-  messagingSenderId: '317926167757',
-  appId: '1:317926167757:web:f7e96ec02973c913ca0584',
-  // measurementId: "G-*******"
+  apiKey: import.meta.env.VITE_FIREBASE_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 export function getFirebaseConfig() {
