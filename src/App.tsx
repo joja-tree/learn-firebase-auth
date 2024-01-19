@@ -15,7 +15,7 @@ function App() {
   // Check if currentUser exists on initial render
   useEffect(() => {
     if (currentUser) {
-      navigate('/profile');
+      navigate('/dashboard');
     }
   }, [currentUser, navigate]);
 
@@ -23,7 +23,7 @@ function App() {
     <Routes>
       <Route index element={<Home />} />
       <Route
-        path="profile"
+        path="dashboard"
         element={
           <RequireAuth>
             <Profile />
